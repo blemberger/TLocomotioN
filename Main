@@ -2,18 +2,19 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-numsegments = 2
+numsegments = 3
 cyclenum = 4
-initsize = 0.2
+initsize = 0.1
 initvariance = 0.05
+projscaling = 0.2
 
 
 epsilon = .5 # >0, <delta/(1+delta)
 delta = 2 # >0
 theta = 1 # >0
 
-totaltime = 25
-timestep = 0.01
+totaltime = 15
+timestep = 0.005
 
 
 netparams = [epsilon, delta, theta]
@@ -85,7 +86,19 @@ class Simulation():
                     if b != a:
                         if b != (a+1)%self.cyclenum:
                             input += -(1+self.delta)*newrates[b]
-                
+
+                for j in range(self.numsegments):
+                    otherrates = self.segments[j].rates[:].copy()
+                    if i != j:
+                        for b in range(self.cyclenum):
+                            if (j-1)%self.numsegments == i:
+                                if b == a:
+                                    w = -(1-self.epsilon)
+                                else:
+                                    w = -(1+self.delta)*0
+                            else: w = -(1+self.delta)
+                            input += projscaling*w*otherrates[b]
+
                 input = max(0, input)
                 ratechange[a] += input
                 ratechange[a] = ratechange[a]*self.timestep
@@ -103,8 +116,12 @@ class Simulation():
         fig, axs = plt.subplots(self.numsegments, 1)
         for i in range(self.numsegments):
             for a in range(self.cyclenum):
-                axs[i].plot(self.timeaxis[:], self.ratehistories[i,a,:])
+                axs[i].plot(self.timeaxis[:], self.ratehistories[i,a,:], alpha=0.7)
                 axs[i].grid(True)
+                for t in range(int(self.stepnum/10), self.stepnum-1):
+                    if self.ratehistories[i,a,t] > self.ratehistories[i,a,t-1]:
+                        if self.ratehistories[i,a,t] > self.ratehistories[i,a,t+1]:
+                            axs[i].vlines(x=t*self.timestep, color='black', ymin=0, ymax=0.5, linewidth=1.5)
         
         fig.tight_layout()
         plt.savefig('TLocNplot.png')

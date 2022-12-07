@@ -1,4 +1,46 @@
 import numpy as np
 
-print(np.sin(5))
-print(f'that was the sine of 5')
+cyclenum = 4
+
+epsilon = .5
+delta = 2
+theta = 1
+netparams = [epsilon, delta, theta]
+
+totaltime = .1
+timestep = 0.01
+
+class Segment():
+    def __init__(self, cyclenum, netparams):
+        self.cyclenum = cyclenum
+        self.netparams = netparams
+        self.epsilon = netparams[0]
+        self.delta = netparams[1]
+        self.theta = netparams[2]
+
+        self.rates = np.zeros([cyclenum])
+
+
+    def nonneg(self):
+        self.rates = [max(r, 0) for r in self.rates]
+
+    def rand_initcondit(self, variance):
+        self.rates = np.random.normal(loc=0.5, scale=variance, size=cyclenum)
+
+
+
+class Simulation():
+    def __init__(self, numsegments, initcondits, totaltime, timestep):
+        self.numsegments = numsegments
+        self.initcondits = initcondits
+        self.totaltime = totaltime
+        self.timestep = timestep
+
+
+
+seg = Segment(cyclenum=cyclenum, netparams=netparams)
+print(seg.rates)
+seg.rand_initcondit(variance=1.5)
+print(seg.rates)
+seg.nonneg()
+print(seg.rates)

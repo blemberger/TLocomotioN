@@ -2,24 +2,31 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-numsegments = 3
+numsegments = 4
 cyclenum = 4
 initsize = 0.1
 initvariance = 0.05
-projscaling = 0.2
+projscaling = 0.0
 
 
-epsilon = .5 # >0, <delta/(1+delta)
-delta = 2 # >0
-theta = 1 # >0
+epsilon_seg = .74 # >0, <delta/(1+delta)
+delta_seg = 6 # >0
+theta_seg = 1 # >0
 
-totaltime = 15
-timestep = 0.005
+epsilon_proj = .1
+delta_proj = 4
+theta_proj = theta_seg
 
+totaltime = 35
+timestep = 0.001
+noise = .0005
 
-netparams = [epsilon, delta, theta]
+homo_initcondits = False
+
+netparams = [epsilon_seg, delta_seg, theta_seg]
+projparams = [epsilon_proj, delta_proj, theta_proj]
 segparams = [numsegments, cyclenum, initsize, initvariance, netparams]
-timeparams = [timestep, totaltime]
+timeparams = [timestep, totaltime, noise]
 
 
 
@@ -41,11 +48,14 @@ class Segment():
         self.rates = np.random.normal(loc=size, scale=variance, size=cyclenum)
         self.nonneg()
 
+    def set_initcondit(self, initcondit):
+        self.rates = initcondit
+
 
 
 
 class Simulation():
-    def __init__(self, segparams, timeparams):
+    def __init__(self, segparams, projparams, timeparams):
 
         self.numsegments = segparams[0]
         self.cyclenum = segparams[1]
@@ -59,15 +69,25 @@ class Simulation():
 
         self.timestep =  timeparams[0]
         self.totaltime = timeparams[1]
+        self.noise = timeparams[2]
         self.stepnum = int(self.totaltime/self.timestep)
         self.timeaxis = np.arange(0, self.totaltime, self.timestep)
 
         self.ratehistories = np.zeros([self.numsegments, self.cyclenum, self.stepnum])
 
+        self.homo_initcondits = False
+
         self.segments = []
         for i in range(self.numsegments):
             self.segments.append(Segment(self.cyclenum, self.netparams))
-            self.segments[-1].rand_initcondit(self.init_size, self.init_variance)
+            if i == 0:
+                self.segments[-1].rand_initcondit(self.init_size, self.init_variance)
+            else:
+                if self.homo_initcondits:
+                    self.segments[-1].set_initcondit(self.segments[0].rates)
+                else:
+                    self.segments[-1].rand_initcondit(self.init_size, self.init_variance)
+
             self.ratehistories[i,:,0] = self.segments[-1].rates[:].copy()
 
         self.stepcount = 1
@@ -90,17 +110,14 @@ class Simulation():
                 for j in range(self.numsegments):
                     otherrates = self.segments[j].rates[:].copy()
                     if i != j:
-                        for b in range(self.cyclenum):
-                            if (j-1)%self.numsegments == i:
-                                if b == a:
-                                    w = -(1-self.epsilon)
-                                else:
-                                    w = -(1+self.delta)*0
-                            else: w = -(1+self.delta)
-                            input += projscaling*w*otherrates[b]
+                        if (j-1)%self.numsegments == i:
+                            w = -(1-self.epsilon)
+                        else:
+                            w = -(1+self.delta)
+                        input += projscaling*w*otherrates[a]
 
                 input = max(0, input)
-                ratechange[a] += input
+                ratechange[a] += input + (1-.5*np.random.rand())*self.noise
                 ratechange[a] = ratechange[a]*self.timestep
             
             newrates = [newrates[a] + ratechange[a] for a in range(self.cyclenum)]
@@ -114,19 +131,31 @@ class Simulation():
 
     def plot(self):
         fig, axs = plt.subplots(self.numsegments, 1)
+        freq_estimate = [[]]*self.numsegments
         for i in range(self.numsegments):
+            peak_times = []
             for a in range(self.cyclenum):
                 axs[i].plot(self.timeaxis[:], self.ratehistories[i,a,:], alpha=0.7)
                 axs[i].grid(True)
-                for t in range(int(self.stepnum/10), self.stepnum-1):
+                for t in range(int(self.stepnum/5), self.stepnum-1):
                     if self.ratehistories[i,a,t] > self.ratehistories[i,a,t-1]:
                         if self.ratehistories[i,a,t] > self.ratehistories[i,a,t+1]:
                             axs[i].vlines(x=t*self.timestep, color='black', ymin=0, ymax=0.5, linewidth=1.5)
+                            peak_times.append(t*self.timestep)
+
+            #avg = 0
+            #for pti in range(1, len(peak_times)):
+            #    avg += peak_times[pti] - peak_times[pti-1]
+            avg = peak_times[-1] - peak_times[0]
+            print(f'average period, segment {i}: {avg/(len(peak_times)-1)}')
+
         
         fig.tight_layout()
         plt.savefig('TLocNplot.png')
 
 
-S = Simulation(segparams=segparams, timeparams=timeparams)
+S = Simulation(segparams=segparams, projparams = projparams, timeparams=timeparams)
+S.homo_initcondits = homo_initcondits
+
 S.run()
 S.plot()

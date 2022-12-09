@@ -1,27 +1,27 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-
-numsegments = 8
+numsegments = 4
 cyclenum = 4
-initsize = 0.1
+initsize = 0.2
 initvariance = 0.05
-projscaling = 0.1
+projscaling = 1.0
+segscaling = 0.03
 
 
-epsilon_seg = .1 # >0, <delta/(1+delta)
+epsilon_seg = .05 # >0, <delta/(1+delta)
 delta_seg = 3 # >0
 theta_seg = 1 # >0
 
-epsilon_proj = .4
+epsilon_proj = .05
 delta_proj = 3
-theta_proj = theta_seg
+theta_proj = theta_seg # right now theta_proj does not appear in simulation at all
 
 totaltime = 150
 timestep = 0.01
 noise = 0.0
 
-homo_initcondits = True
+homo_initcondits = False
 
 netparams = [epsilon_seg, delta_seg, theta_seg]
 projparams = [epsilon_proj, delta_proj, theta_proj]
@@ -63,9 +63,14 @@ class Simulation():
         self.init_variance = segparams[3]
         self.netparams = segparams[4]
 
-        self.epsilon = self.netparams[0]
-        self.delta = self.netparams[1]
-        self.theta = self.netparams[2]
+        self.epsilon_seg = self.netparams[0]
+        self.delta_seg = self.netparams[1]
+        self.theta_seg = self.netparams[2]
+
+        self.projparams = projparams
+        self.epsilon_proj = self.projparams[0]
+        self.delta_proj = self.projparams[1]
+        self.theta_proj = self.projparams[2]
 
         self.timestep =  timeparams[0]
         self.totaltime = timeparams[1]
@@ -100,20 +105,21 @@ class Simulation():
             ratechange = np.zeros([self.cyclenum])
             for a in range(self.cyclenum):
                 input = 0
-                input += self.theta
-                input += -(1-self.epsilon)*newrates[(a+1)%self.cyclenum]
+                input += self.theta_seg
+                input += -segscaling*(1-self.epsilon_seg)*newrates[(a+1)%self.cyclenum]
                 for b in range(self.cyclenum):
                     if b != a:
                         if b != (a+1)%self.cyclenum:
-                            input += -(1+self.delta)*newrates[b]
+                            input += -segscaling*(1+self.delta_seg)*newrates[b]
 
-                for j in range(self.numsegments):
+                for j in range(0, self.numsegments):
                     otherrates = self.segments[j].rates[:].copy()
                     if i != j:
+                        #if j+1 == i:
                         if (j+1)%self.numsegments == i:
-                            w = -(1-self.epsilon)
+                            w = -(1-self.epsilon_proj)
                         else:
-                            w = -(1+self.delta)
+                            w = -(1+self.delta_proj)
                         input += projscaling*w*otherrates[a]
 
                 input = max(0, input)
@@ -166,38 +172,23 @@ class Simulation():
 
 
     def plot(self):
-        fig, axs = plt.subplots(self.numsegments, 1, figsize=(8, 1.2*self.numsegments))
+        fig, axs = plt.subplots(self.numsegments+1, 1, figsize=(8, 1.2*(self.numsegments+1)))
         for i in range(self.numsegments):
             avgperiod, avgperiodcount = 0, 0
             self.peaktimes.append([])
             for a in range(self.cyclenum):
                 self.peaktimes[i].append([])
-                axs[i].plot(self.timeaxis[:], self.ratehistories[i,a,:], alpha=0.7)
+                axs[i].plot(self.timeaxis[:], self.ratehistories[i,a,:], alpha=0.5)
                 axs[i].grid(True)
+                if i == 0:
+                    axs[-1].plot(self.timeaxis[:], self.ratehistories[i,a,:], alpha=0.5)
+                    axs[-1].grid(True)
                 for t in range(int(self.stepnum/5), self.stepnum-1):
                     if self.ratehistories[i,a,t] > self.ratehistories[i,a,t-1]:
                         if self.ratehistories[i,a,t] > self.ratehistories[i,a,t+1]:
                             axs[i].vlines(x=t*self.timestep, color='black', ymin=0, ymax=0.8, linewidth=1.5)
                             self.peaktimes[i][a].append(t*self.timestep)
                             #print('added to peaktimes ', peak_times[-1])
-
-                """
-                #avg = 0
-                #for pti in range(1, len(peak_times)):
-                #    avg += peak_times[pti] - peak_times[pti-1]
-                print(f'length of peaktimes: {len(peaktimes[i][a])}')
-                print(f'i {i}; a {a}')
-                avg = peaktimes[i][a][-1] - peaktimes[i][a][0]
-                periodcount = len(peaktimes[i][a]) - 1
-                if periodcount == 0:
-                    print('periodcount 0: peaktimes ', peaktimes)
-                    print(f'seg {i} cycle {a}')
-                else:
-                    avgperiod += avg/periodcount
-                    avgperiodcount += 1
-                #print(f'avging, first {peak_times[0]}, last {peak_times[-1]}, number {len(peak_times)}')
-                #print(f'average period, segment {i} cycle {a}: {avg/periodcount}')
-                """
 
             #print(f'period estimate, segment {i+1}: {round(avgperiod/avgperiodcount, 1)}  ({round(avgperiod/(self.cyclenum*avgperiodcount), 1)} spacing)')
         

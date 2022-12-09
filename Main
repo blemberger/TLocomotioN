@@ -1,12 +1,13 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-numsegments = 4
+numsegments = 8
 cyclenum = 4
+colors = ['r', 'g', 'c', 'y']
 initsize = 0.2
 initvariance = 0.05
-projscaling = 1.0
-segscaling = 0.03
+projscaling = 0.5
+segscaling = 0.5
 
 
 epsilon_seg = .05 # >0, <delta/(1+delta)
@@ -17,7 +18,7 @@ epsilon_proj = .05
 delta_proj = 3
 theta_proj = theta_seg # right now theta_proj does not appear in simulation at all
 
-totaltime = 150
+totaltime = 100
 timestep = 0.01
 noise = 0.0
 
@@ -81,6 +82,8 @@ class Simulation():
         self.ratehistories = np.zeros([self.numsegments, self.cyclenum, self.stepnum])
 
         self.homo_initcondits = homo_initcondits
+        self.plotalpha = 0.5
+
         self.peaktimes = []        
 
         self.segments = []
@@ -172,30 +175,65 @@ class Simulation():
 
 
     def plot(self):
-        fig, axs = plt.subplots(self.numsegments+1, 1, figsize=(8, 1.2*(self.numsegments+1)))
+
+        fig, axs = plt.subplots( self.numsegments+1, 1, figsize=( 16, 1.2*(self.numsegments+1) ) )
+        if self.peaktimes != []:
+            print(f'peaktimes already initiated, rewriting over them')
+            self.peaktimes = []
+        
         for i in range(self.numsegments):
-            avgperiod, avgperiodcount = 0, 0
             self.peaktimes.append([])
+
             for a in range(self.cyclenum):
                 self.peaktimes[i].append([])
-                axs[i].plot(self.timeaxis[:], self.ratehistories[i,a,:], alpha=0.5)
+
+                axs[i].plot(self.timeaxis[:], self.ratehistories[i,a,:], color = colors[a], alpha = self.plotalpha)
                 axs[i].grid(True)
+
                 if i == 0:
-                    axs[-1].plot(self.timeaxis[:], self.ratehistories[i,a,:], alpha=0.5)
+                    axs[-1].plot(self.timeaxis[:], self.ratehistories[i,a,:], color = colors[a], alpha = self.plotalpha)
                     axs[-1].grid(True)
+
                 for t in range(int(self.stepnum/5), self.stepnum-1):
+
                     if self.ratehistories[i,a,t] > self.ratehistories[i,a,t-1]:
                         if self.ratehistories[i,a,t] > self.ratehistories[i,a,t+1]:
-                            axs[i].vlines(x=t*self.timestep, color='black', ymin=0, ymax=0.8, linewidth=1.5)
-                            self.peaktimes[i][a].append(t*self.timestep)
-                            #print('added to peaktimes ', peak_times[-1])
 
-            #print(f'period estimate, segment {i+1}: {round(avgperiod/avgperiodcount, 1)}  ({round(avgperiod/(self.cyclenum*avgperiodcount), 1)} spacing)')
+                            peaktime = t*self.timestep
+                            axs[i].vlines(x=peaktime, color='black', ymin=0, ymax=0.8, linewidth=1.5)
+                            self.peaktimes[i][a].append(peaktime)
+
+
+        fig.tight_layout()
+        plt.savefig('TLocNplot_proj.png')
+
+        self.spacing_estimate()
+        
+
+        fig, axs = plt.subplots(self.cyclenum+1, 1, figsize=(16, 1.2*(self.cyclenum+1)))
+        
+        for a in range(self.cyclenum):
+            for i in range(self.numsegments):
+                axs[a].plot(self.timeaxis[:], self.ratehistories[i, a, :], color = colors[a],  alpha = self.plotalpha)
+                axs[a].grid(True)
+
+                if a == 0:
+                    axs[-1].plot(self.timeaxis[:], self.ratehistories[i,a,:], color = colors[a], alpha = self.plotalpha)
+                    axs[-1].grid(True)
+
+                for t in range(int(self.stepnum/5), self.stepnum-1):
+
+                    if self.ratehistories[i,a,t] > self.ratehistories[i,a,t-1]:
+                        if self.ratehistories[i,a,t] > self.ratehistories[i,a,t+1]:
+
+                            peaktime = t*self.timestep
+                            axs[a].vlines(x=peaktime, color='black', ymin=0, ymax=0.8, linewidth=1.5)
         
         self.spacing_estimate()
 
         fig.tight_layout()
-        plt.savefig('TLocNplot.png')
+        plt.savefig('TLocNplot_seg.png')
+        
 
 
 S = Simulation(segparams=segparams, projparams = projparams, timeparams=timeparams, homo_initcondits = homo_initcondits)

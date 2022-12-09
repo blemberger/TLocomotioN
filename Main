@@ -2,32 +2,34 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-numsegments = 4
+numsegments = 8
 cyclenum = 4
 initsize = 0.1
 initvariance = 0.05
-projscaling = 0.0
+projscaling = 0.1
 
 
-epsilon_seg = .74 # >0, <delta/(1+delta)
-delta_seg = 6 # >0
+epsilon_seg = .1 # >0, <delta/(1+delta)
+delta_seg = 3 # >0
 theta_seg = 1 # >0
 
-epsilon_proj = .1
-delta_proj = 4
+epsilon_proj = .4
+delta_proj = 3
 theta_proj = theta_seg
 
-totaltime = 35
-timestep = 0.001
-noise = .0005
+totaltime = 150
+timestep = 0.01
+noise = 0.0
 
-homo_initcondits = False
+homo_initcondits = True
 
 netparams = [epsilon_seg, delta_seg, theta_seg]
 projparams = [epsilon_proj, delta_proj, theta_proj]
 segparams = [numsegments, cyclenum, initsize, initvariance, netparams]
 timeparams = [timestep, totaltime, noise]
 
+
+    
 
 
 class Segment():
@@ -52,10 +54,8 @@ class Segment():
         self.rates = initcondit
 
 
-
-
 class Simulation():
-    def __init__(self, segparams, projparams, timeparams):
+    def __init__(self, segparams, projparams, timeparams, homo_initcondits=False):
 
         self.numsegments = segparams[0]
         self.cyclenum = segparams[1]
@@ -75,7 +75,8 @@ class Simulation():
 
         self.ratehistories = np.zeros([self.numsegments, self.cyclenum, self.stepnum])
 
-        self.homo_initcondits = False
+        self.homo_initcondits = homo_initcondits
+        self.peaktimes = []        
 
         self.segments = []
         for i in range(self.numsegments):
@@ -100,7 +101,6 @@ class Simulation():
             for a in range(self.cyclenum):
                 input = 0
                 input += self.theta
-                ratechange[a] += -newrates[a]
                 input += -(1-self.epsilon)*newrates[(a+1)%self.cyclenum]
                 for b in range(self.cyclenum):
                     if b != a:
@@ -110,13 +110,14 @@ class Simulation():
                 for j in range(self.numsegments):
                     otherrates = self.segments[j].rates[:].copy()
                     if i != j:
-                        if (j-1)%self.numsegments == i:
+                        if (j+1)%self.numsegments == i:
                             w = -(1-self.epsilon)
                         else:
                             w = -(1+self.delta)
                         input += projscaling*w*otherrates[a]
 
                 input = max(0, input)
+                ratechange[a] += -newrates[a]
                 ratechange[a] += input + (1-.5*np.random.rand())*self.noise
                 ratechange[a] = ratechange[a]*self.timestep
             
@@ -125,37 +126,88 @@ class Simulation():
             self.segments[i].rates = newrates
         self.stepcount += 1
 
+
     def run(self):
         while self.stepcount*self.timestep < self.totaltime:
             self.step()
 
-    def plot(self):
-        fig, axs = plt.subplots(self.numsegments, 1)
-        freq_estimate = [[]]*self.numsegments
-        for i in range(self.numsegments):
-            peak_times = []
+
+    def spacing_estimate(self):
+        if self.peaktimes == []:
+            print('no peaks found yet! cannot perform spacing_estimate')
+        else:
+            for i in range(self.numsegments):
+                avg, avgcount = 0, 0
+                for a in range(self.cyclenum):
+                    peaklist = self.peaktimes[i][a]
+                    if len(peaklist) < 2:
+                        print('peaklist too short! length', len(peaklist))
+                    else:
+                        avg += (peaklist[-1] - peaklist[0])/(len(peaklist)-1)
+                        avgcount += 1
+                if avgcount == 0:
+                    print('no peak comparisons to make!')
+                    quit()
+                else:
+                    avgspacing = avg/(avgcount*self.cyclenum)
+                    print(f'segment {i+1} average spacing {round(avgspacing, 2)}')
+            
             for a in range(self.cyclenum):
+                avg, avgcount = 0, 0
+                for i in range(0, self.numsegments-1):
+                    for peakt in self.peaktimes[i][a]:
+                        for peakt2 in self.peaktimes[i+1][a]:
+                            if peakt2 > peakt:
+                                avg += peakt2 - peakt
+                                avgcount += 1
+                                #print(peakt2, peakt)
+                                break
+                print(f'type {a} average intersegment spacing {round(avg/avgcount, 2)}')
+
+
+    def plot(self):
+        fig, axs = plt.subplots(self.numsegments, 1, figsize=(8, 1.2*self.numsegments))
+        for i in range(self.numsegments):
+            avgperiod, avgperiodcount = 0, 0
+            self.peaktimes.append([])
+            for a in range(self.cyclenum):
+                self.peaktimes[i].append([])
                 axs[i].plot(self.timeaxis[:], self.ratehistories[i,a,:], alpha=0.7)
                 axs[i].grid(True)
                 for t in range(int(self.stepnum/5), self.stepnum-1):
                     if self.ratehistories[i,a,t] > self.ratehistories[i,a,t-1]:
                         if self.ratehistories[i,a,t] > self.ratehistories[i,a,t+1]:
-                            axs[i].vlines(x=t*self.timestep, color='black', ymin=0, ymax=0.5, linewidth=1.5)
-                            peak_times.append(t*self.timestep)
+                            axs[i].vlines(x=t*self.timestep, color='black', ymin=0, ymax=0.8, linewidth=1.5)
+                            self.peaktimes[i][a].append(t*self.timestep)
+                            #print('added to peaktimes ', peak_times[-1])
 
-            #avg = 0
-            #for pti in range(1, len(peak_times)):
-            #    avg += peak_times[pti] - peak_times[pti-1]
-            avg = peak_times[-1] - peak_times[0]
-            print(f'average period, segment {i}: {avg/(len(peak_times)-1)}')
+                """
+                #avg = 0
+                #for pti in range(1, len(peak_times)):
+                #    avg += peak_times[pti] - peak_times[pti-1]
+                print(f'length of peaktimes: {len(peaktimes[i][a])}')
+                print(f'i {i}; a {a}')
+                avg = peaktimes[i][a][-1] - peaktimes[i][a][0]
+                periodcount = len(peaktimes[i][a]) - 1
+                if periodcount == 0:
+                    print('periodcount 0: peaktimes ', peaktimes)
+                    print(f'seg {i} cycle {a}')
+                else:
+                    avgperiod += avg/periodcount
+                    avgperiodcount += 1
+                #print(f'avging, first {peak_times[0]}, last {peak_times[-1]}, number {len(peak_times)}')
+                #print(f'average period, segment {i} cycle {a}: {avg/periodcount}')
+                """
 
+            #print(f'period estimate, segment {i+1}: {round(avgperiod/avgperiodcount, 1)}  ({round(avgperiod/(self.cyclenum*avgperiodcount), 1)} spacing)')
         
+        self.spacing_estimate()
+
         fig.tight_layout()
         plt.savefig('TLocNplot.png')
 
 
-S = Simulation(segparams=segparams, projparams = projparams, timeparams=timeparams)
-S.homo_initcondits = homo_initcondits
+S = Simulation(segparams=segparams, projparams = projparams, timeparams=timeparams, homo_initcondits = homo_initcondits)
 
 S.run()
 S.plot()

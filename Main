@@ -1,25 +1,32 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-numsegments = 8
+# super-linear activation function
+# 2 not 4 in segment (start with big loops)
+# stronger I connections only more locally for a long chain: does it still work?
+# gaussian or lorentzian decay for off diagonal (longer range) interactions: when does pattern fail? how does it fail?
+
+
+numsegments = 10
 cyclenum = 4
-colors = ['r', 'g', 'c', 'y']
+colors = ['r', 'g', 'c', 'y'] # should be at least as large as cyclenum
 initsize = 0.2
 initvariance = 0.05
-projscaling = 0.3
-segscaling = 1.0
+projscaling = 1.0
+segscaling = 0.0
 
+lam = 1.0
+distancewidth = 0.00001
+epsilon_seg = .3 # >0, <delta/(1+delta)
+delta_seg = 1 # >0
+theta_seg = 1 # >0
 
-epsilon_seg = 2.8 # >0, <delta/(1+delta)
-delta_seg = 2 # >0
-theta_seg = 2.5 # >0
-
-epsilon_proj = 2.8
-delta_proj = 2
+epsilon_proj = epsilon_seg
+delta_proj = delta_seg
 theta_proj = theta_seg # right now theta_proj does not appear in simulation at all
 
-totaltime = 30
-timestep = 0.01
+totaltime = 160
+timestep = 0.02
 noise = 0.0
 
 homo_initcondits = False
@@ -30,8 +37,14 @@ segparams = [numsegments, cyclenum, initsize, initvariance, netparams]
 timeparams = [timestep, totaltime, noise]
 
 
-    
+def actfunc(input):
+    input = max(0, input)
+    #input = np.power(input, 1.0)
+    return input
 
+
+def distancefunc(separation, width):
+    return np.exp( -((separation**2)*width) )
 
 class Segment():
     def __init__(self, cyclenum, netparams):
@@ -42,7 +55,6 @@ class Segment():
         self.theta = netparams[2]
 
         self.rates = np.zeros([cyclenum])
-
 
     def nonneg(self):
         self.rates = [max(r, 0) for r in self.rates]
@@ -79,23 +91,25 @@ class Simulation():
         self.stepnum = int(self.totaltime/self.timestep)
         self.timeaxis = np.arange(0, self.totaltime, self.timestep)
 
+        self.lam = 1.0
+        self.distancewidth = 1.0
+
         self.ratehistories = np.zeros([self.numsegments, self.cyclenum, self.stepnum])
 
         self.homo_initcondits = homo_initcondits
-        self.plotalpha = 0.5
+        self.plotalpha = 0.35
 
         self.peaktimes = []        
 
         self.segments = []
         for i in range(self.numsegments):
             self.segments.append(Segment(self.cyclenum, self.netparams))
-            if i == 0:
-                self.segments[-1].rand_initcondit(self.init_size, self.init_variance)
+            if i == 0: self.segments[0].rand_initcondit(self.init_size, self.init_variance)
             else:
                 if self.homo_initcondits:
-                    self.segments[-1].set_initcondit(self.segments[0].rates)
+                    self.segments[i].set_initcondit(self.segments[0].rates)
                 else:
-                    self.segments[-1].rand_initcondit(self.init_size, self.init_variance)
+                    self.segments[i].rand_initcondit(self.init_size, self.init_variance)
 
             self.ratehistories[i,:,0] = self.segments[-1].rates[:].copy()
 
@@ -103,36 +117,50 @@ class Simulation():
 
         
     def step(self):
+        newrates_list = []
         for i in range(self.numsegments):
             newrates = self.segments[i].rates[:].copy()
             ratechange = np.zeros([self.cyclenum])
             for a in range(self.cyclenum):
                 input = 0
                 input += self.theta_seg
-                input += -segscaling*(1-self.epsilon_seg)*newrates[(a+1)%self.cyclenum]
-                for b in range(self.cyclenum):
-                    if b != a:
-                        if b != (a+1)%self.cyclenum:
-                            input += -segscaling*(1+self.delta_seg)*newrates[b]
+                #input += -segscaling*(1-self.epsilon_seg)*newrates[(a+1)%self.cyclenum]
+                for b in range(0, self.cyclenum):
+                    if a != b:
+                        if (b+1)%self.cyclenum == a:
+                            w = -(1-self.epsilon_seg)
+                        else:
+                            w = -(1+self.delta_seg)
+                        input += segscaling*w*self.segments[i].rates[b]
 
                 for j in range(0, self.numsegments):
-                    otherrates = self.segments[j].rates[:].copy()
                     if i != j:
-                        #if j+1 == i:
-                        if (j-1)%self.numsegments == i:
+                        distance1 = np.abs(i-j)
+                        distance2 = np.abs(i-(j-self.numsegments))
+                        distance3 = np.abs(j-(i-self.numsegments))
+                        distance = min(distance1, distance2, distance3)
+                        df = distancefunc(distance, self.distancewidth)
+                        if (j+1)%self.numsegments == i:
                             w = -(1-self.epsilon_proj)
                         else:
                             w = -(1+self.delta_proj)
-                        input += projscaling*w*otherrates[a]
+                        #input += projscaling*w*otherrates[a]
+                        input += projscaling*w*df*self.segments[j].rates[a]
 
-                input = max(0, input)
-                ratechange[a] += -newrates[a]
+                #input = max(0, input)
+                input = actfunc(input)
+                ratechange[a] += -self.lam*newrates[a]
                 ratechange[a] += input + (1-.5*np.random.rand())*self.noise
                 ratechange[a] = ratechange[a]*self.timestep
             
-            newrates = [newrates[a] + ratechange[a] for a in range(self.cyclenum)]
+            newrates = [max(0, newrates[a] + ratechange[a]) for a in range(self.cyclenum)]
             self.ratehistories[i, :, self.stepcount] = newrates[:]
-            self.segments[i].rates = newrates
+            newrates_list.append(newrates)
+        
+        for i in range(self.numsegments):
+            for a in range(self.cyclenum):
+                self.segments[i].rates[a] = newrates_list[i][a]
+
         self.stepcount += 1
 
 
@@ -145,6 +173,7 @@ class Simulation():
         if self.peaktimes == []:
             print('no peaks found yet! cannot perform spacing_estimate')
         else:
+            spacingavg, periodavg, avgcounter = 0, 0, 0
             for i in range(self.numsegments):
                 avg, avgcount = 0, 0
                 for a in range(self.cyclenum):
@@ -156,10 +185,19 @@ class Simulation():
                         avgcount += 1
                 if avgcount == 0:
                     print('no peak comparisons to make!')
-                    quit()
+                    #quit()
                 else:
                     avgspacing = avg/(avgcount*self.cyclenum)
-                    print(f'segment {i+1} average spacing {round(avgspacing, 2)}')
+                    #print(f'segment {i+1} average spacing {round(avgspacing, 2)}')
+                    spacingavg += avgspacing
+                    #print(f'segment {i+1} period {round(avgspacing, 2)*self.cyclenum}')
+                    periodavg += avgspacing*self.cyclenum
+                    avgcounter += 1
+
+            print(f'segment average spacing {round(spacingavg/avgcounter, 2)}')
+            print(f'segment average period {round(periodavg/avgcounter, 2)}')
+            
+            spacingavg, periodavg, avgcounter = 0, 0, 0
             
             for a in range(self.cyclenum):
                 avg, avgcount = 0, 0
@@ -171,7 +209,16 @@ class Simulation():
                                 avgcount += 1
                                 #print(peakt2, peakt)
                                 break
-                print(f'type {a} average intersegment spacing {round(avg/avgcount, 2)}')
+                if avgcount > 0:
+                    #print(f'type {a} average intersegment spacing {round(avg/avgcount, 2)}')
+                    spacingavg += avg/avgcount
+                    #print(f'type {a} period {round(avg/avgcount, 2)*self.numsegments}')
+                    periodavg += (avg/avgcount)*self.numsegments
+                    avgcounter += 1
+                else: print(f'no average intersegment spacing')
+            
+            print(f'type average spacing {round(spacingavg/avgcounter, 2)}')
+            print(f'type average period {round(periodavg/avgcounter, 2)}')
 
 
     def plot(self):
@@ -206,6 +253,7 @@ class Simulation():
 
         fig.tight_layout()
         plt.savefig('TLocNplot_proj.png')
+        print('made the projection plot')
 
         self.spacing_estimate()
         
@@ -232,10 +280,17 @@ class Simulation():
 
         fig.tight_layout()
         plt.savefig('TLocNplot_seg.png')
+        print('made the segment plot')
+
         
 
 
 S = Simulation(segparams=segparams, projparams = projparams, timeparams=timeparams, homo_initcondits = homo_initcondits)
+S.lam = lam
+S.distancewidth = distancewidth
+
 
 S.run()
 S.plot()
+
+print(f'distance width {distancewidth}, maximum attenuation {distancefunc(numsegments, distancewidth)}')

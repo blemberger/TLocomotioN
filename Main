@@ -1,32 +1,45 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import sys
 
 # super-linear activation function
 # 2 not 4 in segment (start with big loops)
 # stronger I connections only more locally for a long chain: does it still work?
 # gaussian or lorentzian decay for off diagonal (longer range) interactions: when does pattern fail? how does it fail?
 
+# do other parameters effect period when act function is nonlinear??
 
-numsegments = 10
-cyclenum = 4
-colors = ['r', 'g', 'c', 'y'] # should be at least as large as cyclenum
+if len(sys.argv) == 2:
+    nameadd = sys.argv[1]
+else:
+    nameadd = ''
+
+# nameadd = 'run2'  # manual override of nameadd variable
+
+numsegments = 16
+cyclenum = 8
+colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k', 'brown', 'orange', 'pink'] # should be at least as large as cyclenum
 initsize = 0.2
 initvariance = 0.05
 projscaling = 1.0
-segscaling = 0.0
+segscaling = 1.0
 
 lam = 1.0
-distancewidth = 0.00001
-epsilon_seg = .3 # >0, <delta/(1+delta)
-delta_seg = 1 # >0
-theta_seg = 1 # >0
+actfun_exponent = 0.9
+distancewidth = 0.0000001
+epsilon_seg = .45 # >0, <delta/(1+delta)
+delta_seg = 1.6 # >0
+theta_seg = 0.2 # >0
 
 epsilon_proj = epsilon_seg
 delta_proj = delta_seg
 theta_proj = theta_seg # right now theta_proj does not appear in simulation at all
 
-totaltime = 160
-timestep = 0.02
+#totaltime = 360
+totaltime = 300
+plottime = 100
+
+timestep = 0.01
 noise = 0.0
 
 homo_initcondits = False
@@ -37,14 +50,18 @@ segparams = [numsegments, cyclenum, initsize, initvariance, netparams]
 timeparams = [timestep, totaltime, noise]
 
 
+plotsteps = int(plottime/timestep)
+
+
 def actfunc(input):
     input = max(0, input)
-    #input = np.power(input, 1.0)
+    input = np.power(input, actfun_exponent)
     return input
 
 
 def distancefunc(separation, width):
     return np.exp( -((separation**2)*width) )
+
 
 class Segment():
     def __init__(self, cyclenum, netparams):
@@ -75,7 +92,7 @@ class Simulation():
         self.init_size = segparams[2]
         self.init_variance = segparams[3]
         self.netparams = segparams[4]
-
+        
         self.epsilon_seg = self.netparams[0]
         self.delta_seg = self.netparams[1]
         self.theta_seg = self.netparams[2]
@@ -84,6 +101,11 @@ class Simulation():
         self.epsilon_proj = self.projparams[0]
         self.delta_proj = self.projparams[1]
         self.theta_proj = self.projparams[2]
+        
+        self.projscaling = projscaling
+        self.segscaling = segscaling
+
+        self.nameadd = ''
 
         self.timestep =  timeparams[0]
         self.totaltime = timeparams[1]
@@ -97,9 +119,9 @@ class Simulation():
         self.ratehistories = np.zeros([self.numsegments, self.cyclenum, self.stepnum])
 
         self.homo_initcondits = homo_initcondits
-        self.plotalpha = 0.35
+        self.plotalpha = 0.8
 
-        self.peaktimes = []        
+        self.peaktimes = []
 
         self.segments = []
         for i in range(self.numsegments):
@@ -131,7 +153,7 @@ class Simulation():
                             w = -(1-self.epsilon_seg)
                         else:
                             w = -(1+self.delta_seg)
-                        input += segscaling*w*self.segments[i].rates[b]
+                        input += self.segscaling*w*self.segments[i].rates[b]
 
                 for j in range(0, self.numsegments):
                     if i != j:
@@ -145,7 +167,7 @@ class Simulation():
                         else:
                             w = -(1+self.delta_proj)
                         #input += projscaling*w*otherrates[a]
-                        input += projscaling*w*df*self.segments[j].rates[a]
+                        input += self.projscaling*w*df*self.segments[j].rates[a]
 
                 #input = max(0, input)
                 input = actfunc(input)
@@ -194,8 +216,13 @@ class Simulation():
                     periodavg += avgspacing*self.cyclenum
                     avgcounter += 1
 
-            print(f'segment average spacing {round(spacingavg/avgcounter, 2)}')
-            print(f'segment average period {round(periodavg/avgcounter, 2)}')
+            if avgcounter > 0:
+                #print(f'segment average spacing {round(spacingavg/avgcounter, 2)}')
+                #print(f'segment average period {round(periodavg/avgcounter, 2)}')
+
+                print(f'average: segment spacing {round(spacingavg/avgcounter, 2)}, total period {round(periodavg/avgcounter, 2)}')   
+                print(f'ratio {round(periodavg/spacingavg, 2)} (c.f. {self.numsegments}), avged over {avgcounter}')
+                segspace = spacingavg
             
             spacingavg, periodavg, avgcounter = 0, 0, 0
             
@@ -217,8 +244,15 @@ class Simulation():
                     avgcounter += 1
                 else: print(f'no average intersegment spacing')
             
-            print(f'type average spacing {round(spacingavg/avgcounter, 2)}')
-            print(f'type average period {round(periodavg/avgcounter, 2)}')
+            if avgcounter > 0:
+                print(f'type average spacing {round(spacingavg/avgcounter, 2)}')
+                print(f'type average period {round(periodavg/avgcounter, 2)}')
+
+                print(f'average: type spacing {round(spacingavg/avgcounter, 2)}, total period {round(periodavg/avgcounter, 2)}')   
+                print(f'ratio {round(periodavg/spacingavg, 2)} (c.f. {self.cyclenum}), avged over {avgcounter}')
+                
+                projspace = spacingavg
+                print(f'{projspace/segspace} = {self.numsegments/self.cyclenum}?')
 
 
     def plot(self):
@@ -233,12 +267,13 @@ class Simulation():
 
             for a in range(self.cyclenum):
                 self.peaktimes[i].append([])
-
-                axs[i].plot(self.timeaxis[:], self.ratehistories[i,a,:], color = colors[a], alpha = self.plotalpha)
+                plotrates = self.ratehistories[i,a,:]
+                color = colors[a]
+                axs[i].plot(self.timeaxis[:plotsteps], plotrates[:plotsteps], color = color, alpha = self.plotalpha)
                 axs[i].grid(True)
 
                 if i == 0:
-                    axs[-1].plot(self.timeaxis[:], self.ratehistories[i,a,:], color = colors[a], alpha = self.plotalpha)
+                    axs[-1].plot(self.timeaxis[:plotsteps], self.ratehistories[i,a,:plotsteps], color = colors[a], alpha = self.plotalpha)
                     axs[-1].grid(True)
 
                 for t in range(int(self.stepnum/5), self.stepnum-1):
@@ -247,13 +282,15 @@ class Simulation():
                         if self.ratehistories[i,a,t] > self.ratehistories[i,a,t+1]:
 
                             peaktime = t*self.timestep
-                            axs[i].vlines(x=peaktime, color='black', ymin=0, ymax=0.8, linewidth=1.5)
+                            height = self.ratehistories[i, a, t]*0.8
+                            if t < plotsteps:
+                                axs[i].vlines(x=peaktime, color='black', ymin=0, ymax=height, linewidth=1.5)
                             self.peaktimes[i][a].append(peaktime)
 
 
         fig.tight_layout()
-        plt.savefig('TLocNplot_proj.png')
-        print('made the projection plot')
+        plt.savefig(f'proj_theta{str(theta_seg)}{self.nameadd}.png'.replace('.','p'))
+        print('made the projection plot:' + self.nameadd)
 
         self.spacing_estimate()
         
@@ -262,11 +299,11 @@ class Simulation():
         
         for a in range(self.cyclenum):
             for i in range(self.numsegments):
-                axs[a].plot(self.timeaxis[:], self.ratehistories[i, a, :], color = colors[a],  alpha = self.plotalpha)
+                axs[a].plot(self.timeaxis[:plotsteps], self.ratehistories[i, a, :plotsteps], color = colors[a],  alpha = self.plotalpha)
                 axs[a].grid(True)
 
                 if a == 0:
-                    axs[-1].plot(self.timeaxis[:], self.ratehistories[i,a,:], color = colors[a], alpha = self.plotalpha)
+                    axs[-1].plot(self.timeaxis[:plotsteps], self.ratehistories[i,a,:plotsteps], color = colors[a], alpha = self.plotalpha)
                     axs[-1].grid(True)
 
                 for t in range(int(self.stepnum/5), self.stepnum-1):
@@ -275,17 +312,24 @@ class Simulation():
                         if self.ratehistories[i,a,t] > self.ratehistories[i,a,t+1]:
 
                             peaktime = t*self.timestep
-                            axs[a].vlines(x=peaktime, color='black', ymin=0, ymax=0.8, linewidth=1.5)
+                            height = self.ratehistories[i, a, t]*0.8
+                            if t < plotsteps:
+                                axs[a].vlines(x=peaktime, color='black', ymin=0, ymax=height, linewidth=1.5)
         
 
         fig.tight_layout()
-        plt.savefig('TLocNplot_seg.png')
-        print('made the segment plot')
+        plt.savefig(f'seg_theta{str(theta_seg)}{self.nameadd}.png'.replace('.','p'))
+        print('made the segment plot: ' + self.nameadd)
 
         
 
 
 S = Simulation(segparams=segparams, projparams = projparams, timeparams=timeparams, homo_initcondits = homo_initcondits)
+S.projscaling = projscaling
+S.segscaling = segscaling
+#S.nameadd = 'run2'
+S.nameadd = nameadd
+
 S.lam = lam
 S.distancewidth = distancewidth
 
@@ -293,4 +337,17 @@ S.distancewidth = distancewidth
 S.run()
 S.plot()
 
+Stran = Simulation(segparams=segparams, projparams = projparams, timeparams=timeparams, homo_initcondits = homo_initcondits)
+Stran.projscaling = projscaling
+Stran.segscaling = 0.0
+
+Stran.nameadd = S.nameadd + 'transected'
+
+Stran.lam = lam
+Stran.distancewidth = distancewidth
+
+Stran.run()
+Stran.plot()
+
 print(f'distance width {distancewidth}, maximum attenuation {distancefunc(numsegments, distancewidth)}')
+print(f'theta (input): {theta_seg}')
